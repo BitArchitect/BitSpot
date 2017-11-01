@@ -1,11 +1,20 @@
 const mysql = require('mysql');
 const config = require('./config.js');
 
+// BitCoin DB
+// const connection = mysql.createConnection({
+//   host: "rds-mysql-10mintutorial.c4b0uxv6yk5n.us-west-1.rds.amazonaws.com",
+//   user: "masterUsername",
+//   password: config.pw,
+//   database: "realestate"
+// });
+
+// House Prices DB
 const connection = mysql.createConnection({
-  host: "rds-mysql-10mintutorial.c4b0uxv6yk5n.us-west-1.rds.amazonaws.com",
-  user: "masterUsername",
+  host: "house-prices.c4b0uxv6yk5n.us-west-1.rds.amazonaws.com",
+  user: "sevam",
   password: config.pw,
-  database: "realestate"
+  database: "closingHousePrices"
 });
 
 const insert = function(data) {
@@ -31,7 +40,20 @@ const retrieve = function(query, callback) {
   });
 };
 
+const retrieveHomePrices = function(query, callback) {
+  var query = query || "SELECT * FROM sf_home_sale_prices";
+  connection.query(query, function(err, result) {
+    if (err) {
+      throw err;
+    } else {
+      // console.log('Vales successfuly retrieved: ', result);
+      callback(result);
+    }
+  });
+};
+
 module.exports = {
   insert: insert,
-  retrieve: retrieve
+  retrieve: retrieve,
+  retrieveHomePrices: retrieveHomePrices
 };
