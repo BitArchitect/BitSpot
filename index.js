@@ -5,15 +5,37 @@ const Exchanges = require('crypto-exchange');
 const cron = require('node-cron');
 const db = require('./database.js');
 const statsD = require('node-statsd');
-// const config = require('./config.js')
+const redis = require('redis');
 
-const client = new statsD({
+// telnet thesis-house-price-001.nbxzan.0001.usw1.cache.amazonaws.com 11211
+// src/redis-cli -c -h thesis-house-price.nbxzan.ng.0001.usw1.cache.amazonaws.com -p 6379
+const _port = 1337;
+
+const statsDClient = new statsD({
   host: `statsd.hostedgraphite.com`,
   port: 8125,
-  prefix: `b9483767-cbb7-4699-8548-54f0245df2d5`
+  prefix: `00436c17-5dfb-4df2-bd21-634d9a0ab64f`
 });
 
-const _port = 1337;
+const redisClient = redis.createClient({
+  host: 'thesis-house-price.nbxzan.ng.0001.usw1.cache.amazonaws.com',
+  port: 6379
+});
+
+redisClient.on("error", function (err) {
+    console.log("Error " + err);
+});
+ 
+// redisClient.set("string key", "string val", redis.print);
+// redisClient.hset("hash key", 123, "some value", redis.print);
+// redisClient.hset(["hash key", 444, "some other value"], redis.print);
+// redisClient.hkeys("hash key", function (err, replies) {
+//     console.log(replies.length + " replies:");
+//     replies.forEach(function (reply, i) {
+//         console.log("    " + i + ": " + reply);
+//     });
+//     redisClient.quit();
+// });
 
 // MySql Database
 // const connection = mysql.createConnection({
@@ -108,34 +130,48 @@ const _port = 1337;
 
 
 app.get('/*', (req, res) => {
-  console.log('Request coming in!', req.query)
-
+  // console.log('Request coming in!', req.query)
+  const startTime = Date.now();
+  statsDClient.increment('.service.house.query.all')
   let zipcode = req.query.zipcode || "94118";
   let startDate = req.query.startDate.slice(0,4) + req.query.startDate.slice(5,7) || "200410";
   let endDate = req.query.endDate.slice(0,4) + req.query.endDate.slice(5,7) || "200510";
-  db.retrieveHomePrices("SELECT * FROM sf_home_sale_prices WHERE ZipCode=" + zipcode, function(data) {
-    if (data) {
-      var count = 0;
-      var responseObj = {};
-      let sum = 0;
-      for (var key in data[0]) {
-        if (count > 0 || startDate === key) {
-          if (key === endDate) {
-            break;
-          } else {
-            count++;
-            sum += data[0][key];
-          }
-        }
-      }
-      let average = sum/count;
-      if (average) {
-        res.json({average: average})
-      } else {
-        res.json({average: 1200000})
-      }
+
+  redisClient.get(JSON.stringify(req.query), function(err, reply) {
+    if (reply) {
+      res.json({average: reply});
     } else {
-      res.json({error: 'Please specify the ZipCode'})
+      db.retrieveHomePrices("SELECT * FROM sf_home_sale_prices WHERE ZipCode=" + zipcode, function(data) {
+        if (data) {
+          var count = 0;
+          var responseObj = {};
+          let sum = 0;
+          for (var key in data[0]) {
+            if (count > 0 || startDate === key) {
+              if (key === endDate) {
+                break;
+              } else {
+                count++;
+                sum += data[0][key];
+              }
+            }
+          }
+          let average = sum/count;
+          if (average) {
+            res.json({average: average})
+            statsDClient.timing('.service.house.query.latency_ms', Date.now() - startTime)
+            redisClient.set(JSON.stringify(req.query), 1200000, 'EX', 6);
+          } else {
+            res.json({average: '1200000'})
+            statsDClient.timing('.service.house.query.latency_ms', Date.now() - startTime)
+            redisClient.set(JSON.stringify(req.query), 1200000, 'EX', 6);
+          }
+        } else {
+          res.json({error: 'Please specify the ZipCode'})
+          statsDClient.timing('.service.house.query.latency_ms', Date.now() - startTime)
+          statsDClient.increment('.service.house.query.fail')
+        }
+      })
     }
   })
 });
